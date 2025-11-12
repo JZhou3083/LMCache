@@ -1052,8 +1052,8 @@ class PagedTensorMemoryAllocator(MemoryAllocatorInterface):
                 f"Adjusted buffer size from {self.buffer_size} to {rounded} "
                 f"to align with {self.align_bytes} bytes."
             )
-            self.buffer_size = rounded    
-        
+            self.buffer_size = rounded
+
         self.paged_buffers = torch.split(
             self.buffer, self.align_bytes // self.buffer.element_size(), dim=0
         )
