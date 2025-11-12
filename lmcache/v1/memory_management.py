@@ -1038,14 +1038,25 @@ class PagedTensorMemoryAllocator(MemoryAllocatorInterface):
         self.bytes_per_element = torch.tensor([], dtype=dtype).element_size()
         self.align_bytes = num_elements * self.bytes_per_element
 
-        assert self.buffer_size % self.align_bytes == 0, (
-            f"Buffer size {self.buffer_size} must be a"
-            f" multiple of align bytes {self.align_bytes}"
-            " in paged memory allocator."
+        # assert self.buffer_size % self.align_bytes == 0, (
+        #     f"Buffer size {self.buffer_size} must be a"
+        #     f" multiple of align bytes {self.align_bytes}"
+        #     " in paged memory allocator."
+        # )
+
+        # self.paged_buffers = torch.split(self.buffer, self.align_bytes, dim=0)
+
+        if self.buffer_size % self.align_bytes != 0:
+            rounded = self.buffer_size // self.align_bytes * self.align_bytes
+            logger.warning(
+                f"Adjusted buffer size from {self.buffer_size} to {rounded} "
+                f"to align with {self.align_bytes} bytes."
+            )
+            self.buffer_size = rounded    
+        
+        self.paged_buffers = torch.split(
+            self.buffer, self.align_bytes // self.buffer.element_size(), dim=0
         )
-
-        self.paged_buffers = torch.split(self.buffer, self.align_bytes, dim=0)
-
         # NOTE: deque is used since thread-safety is not a concern here as
         # is implemented in C under the hood (in CPython), and operations
         # on deque are atomic.
