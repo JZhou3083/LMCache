@@ -1038,25 +1038,43 @@ class PagedTensorMemoryAllocator(MemoryAllocatorInterface):
         self.bytes_per_element = torch.tensor([], dtype=dtype).element_size()
         self.align_bytes = num_elements * self.bytes_per_element
 
-        # assert self.buffer_size % self.align_bytes == 0, (
-        #     f"Buffer size {self.buffer_size} must be a"
-        #     f" multiple of align bytes {self.align_bytes}"
-        #     " in paged memory allocator."
-        # )
-
-        # self.paged_buffers = torch.split(self.buffer, self.align_bytes, dim=0)
-
+        # Replace the original assertion
         if self.buffer_size % self.align_bytes != 0:
-            rounded = self.buffer_size // self.align_bytes * self.align_bytes
+            # Calculate the aligned buffer size
+            aligned_buffer_size = (
+                self.buffer_size // self.align_bytes
+            ) * self.align_bytes
+
+            # Adjust the buffer instead of modifying buffer_size
+            if aligned_buffer_size < self.buffer.element_size():
+                raise ValueError(
+                    f"Buffer size {self.buffer_size} is too small after alignment "
+                    f"to {aligned_buffer_size} with align_bytes {self.align_bytes}"
+                )
+
+            # Adjust buffer size
+            elements_needed = aligned_buffer_size // self.buffer.element_size()
+            if self.buffer.numel() > elements_needed:
+                self.buffer = self.buffer[:elements_needed]
+            elif self.buffer.numel() < elements_needed:
+                # When it needs to extend buffer
+                additional_elements = elements_needed - self.buffer.numel()
+                additional_buffer = torch.zeros(
+                    additional_elements,
+                    dtype=self.buffer.dtype,
+                    device=self.buffer.device,
+                )
+                self.buffer = torch.cat([self.buffer, additional_buffer])
+
             logger.warning(
-                f"Adjusted buffer size from {self.buffer_size} to {rounded} "
+                f"Adjusted buffer from {self.buffer_size} to {aligned_buffer_size} "
                 f"to align with {self.align_bytes} bytes."
             )
-            self.buffer_size = rounded
 
-        self.paged_buffers = torch.split(
-            self.buffer, self.align_bytes // self.buffer.element_size(), dim=0
-        )
+        # Safe split
+        split_size = self.align_bytes // self.buffer.element_size()
+        self.paged_buffers = torch.split(self.buffer, split_size, dim=0)
+
         # NOTE: deque is used since thread-safety is not a concern here as
         # is implemented in C under the hood (in CPython), and operations
         # on deque are atomic.
